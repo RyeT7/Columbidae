@@ -1,0 +1,60 @@
+# CI only. Builds on a GitHub-hosted runner and hands the artifact off as a
+# GitHub Release. There is deliberately no deploy job here and no self-hosted
+# runner: the deploy VM pulls from the release on its own schedule. See
+# CLAUDE.md before adding any job that talks to the deploy VM.
+name: Build and publish deploy release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # required to create the release
+
+env:
+  # The web project to publish, and the runtime to publish it for.
+  PROJECT_PATH: src/Odysseus.Web/Odysseus.Web.csproj
+  DOTNET_VERSION: '8.0.x'
+  RUNTIME_ID: win-x64
+
+concurrency:
+  # A newer push supersedes an in-flight build; the VM only ever pulls latest.
+  group: deploy-release
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore "$PROJECT_PATH" -r "$RUNTIME_ID"
+
+      - name: Publish
+        run: >
+          dotnet publish "$PROJECT_PATH"
+          -c Release
+          -r "$RUNTIME_ID"
+          --self-contained false
+          --no-restore
+          -o publish
+
+      # Asset name must match release_asset_name in the VM's config.yaml.
+      - name: Package
+        run: cd publish && zip -qr ../release.zip .
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "deploy-${GITHUB_SHA}" release.zip
+          --title "Deploy ${GITHUB_SHA:0:7}"
+          --notes "Automated build of ${GITHUB_SHA} from ${GITHUB_REF_NAME}."
+          --latest

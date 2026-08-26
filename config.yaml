@@ -1,0 +1,52 @@
+# Deploy configuration for deploy-poll-lite.ps1
+#
+# Flat "key: value" pairs only -- no nesting, no lists, no anchors.
+# The script's parser is intentionally minimal so this VM does not need the
+# third-party powershell-yaml module. See CLAUDE.md, non-negotiable #6.
+#
+# Everything after the first ":" is the value, so Windows paths (C:\...) and
+# URLs (http://...) are fine. A "#" preceded by whitespace starts a comment.
+
+# --- Source: where built artifacts are pulled from ------------------------
+github_owner: your-github-org
+github_repo: your-repo-name
+
+# Name of the asset attached to the release by the CI workflow.
+release_asset_name: release.zip
+
+# Personal access token with "contents: read". Leave blank for public repos.
+# Required for private repos; the script sends it as a Bearer token and
+# handles the S3 redirect that GitHub's asset API issues.
+github_token:
+
+# --- Target: the IIS site being deployed ----------------------------------
+iis_site_name: Default Web Site
+
+# Must return HTTP 200 only once the app is genuinely ready to serve traffic.
+# The rollback decision depends entirely on this being accurate.
+health_url: http://localhost/health
+
+# --- Paths on the deploy VM -----------------------------------------------
+# Each deploy extracts into deploy_root\release-<timestamp>. Must be on the
+# same volume as the IIS site for the swap to stay fast.
+deploy_root: C:\inetpub\deployments\odysseus
+log_file: C:\inetpub\deployments\odysseus\deploy.log
+lock_file: C:\inetpub\deployments\odysseus\deploy.lock
+state_file: C:\inetpub\deployments\odysseus\deployed-tag.txt
+
+# --- Behaviour -------------------------------------------------------------
+# Health check retries after the physical path swap, and the wait between
+# them. retries * delay should comfortably exceed cold-start time.
+health_retries: 10
+health_retry_delay_seconds: 3
+
+# How many release-<timestamp> folders to keep. The live release and the
+# previous one (the rollback target) are never pruned regardless of this.
+keep_releases: 5
+
+# A lock file older than this is treated as abandoned by a crashed run and
+# is broken. Keep it well above the worst-case run time.
+lock_stale_minutes: 30
+
+# Seconds to wait for the GitHub API / asset download before giving up.
+http_timeout_seconds: 120
