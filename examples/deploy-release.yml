@@ -22,8 +22,8 @@
 #      auto-rolls back)
 #
 # Deliberately no deploy job and no self-hosted runner: nothing may reach into
-# the deploy VM's LAN. CI drops the artifact at a GitHub Release; the VM polls
-# for it on its own schedule. See CLAUDE.md.
+# the deploy target's network. CI drops the artifact at a GitHub Release; the
+# target polls for it on its own schedule.
 # =============================================================================
 name: Build and publish deploy release
 

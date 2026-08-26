@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-    GitHub Releases access. The only outbound network traffic this pipeline
-    makes (CLAUDE.md non-negotiable #4).
+    GitHub Releases access. The only network traffic this pipeline makes, and
+    deliberately outbound-only -- nothing is permitted to connect inward to
+    the deploy target.
 #>
 
 $script:UserAgent = 'deploy-poll-lite'

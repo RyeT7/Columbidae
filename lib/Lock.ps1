@@ -4,8 +4,8 @@
 
 .NOTES
     This is the script's own guard. Task Scheduler's "do not start a new
-    instance" setting is a second line of defense, not a replacement
-    (CLAUDE.md, operational notes).
+    instance" setting is a second line of defense, not a replacement for it;
+    see the README for how to enable it.
 
     The lock is an exclusively-held open file handle, not just a file on disk,
     so a run that dies without cleaning up leaves a file nobody holds -- which

@@ -2,7 +2,7 @@
 #
 # Flat "key: value" pairs only -- no nesting, no lists, no anchors.
 # The script's parser is intentionally minimal so this VM does not need the
-# third-party powershell-yaml module. See CLAUDE.md, non-negotiable #6.
+# third-party powershell-yaml module installed.
 #
 # Everything after the first ":" is the value, so Windows paths (C:\...) and
 # URLs (http://...) are fine. A "#" preceded by whitespace starts a comment.

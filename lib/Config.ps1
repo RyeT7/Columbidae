@@ -3,9 +3,10 @@
     Minimal flat "key: value" config reader.
 
 .NOTES
-    Deliberately not a YAML parser. See CLAUDE.md non-negotiable #6 before
-    extending this -- adding nesting or lists here is the slippery slope that
-    ends in depending on powershell-yaml being installed on the deploy VM.
+    Deliberately not a YAML parser. Adding nesting or lists here is the
+    slippery slope that ends in depending on powershell-yaml being installed
+    on the deploy target. If real YAML features are genuinely needed, that is
+    a tradeoff to weigh deliberately, not something to extend by hand.
 #>
 
 # Remembered by Read-FlatConfig so Get-ConfigValue can name the offending file

@@ -10,7 +10,7 @@
     check fails.
 
     This script starts, does its work, and exits. Nothing is left resident
-    between runs -- that is the core invariant of this design (see CLAUDE.md).
+    between runs -- that is the core invariant of this design.
     It never builds or compiles anything, and it never touches the database on
     this VM. All network traffic is outbound HTTPS to GitHub.
 
