@@ -132,6 +132,41 @@ Keep the interval longer than a worst-case run (download + extract + health
 retries), or most polls just hit the overlap guard and skip — harmless, but
 noisy in the log.
 
+## Multiple apps in one site
+
+A frontend at `/` and a backend at `/api` under the same IIS site deploy
+independently. Give each its own config file and its own scheduled task —
+the script itself stays generic.
+
+```yaml
+# frontend.yaml                    # backend.yaml
+iis_site_name: My Site             iis_site_name: My Site
+iis_app_path: /                    iis_app_path: /api
+health_url: http://localhost/      health_url: http://localhost/api/health
+deploy_root: C:\deploy\web         deploy_root: C:\deploy\api
+release_asset_name: web.zip        release_asset_name: api.zip
+```
+
+```powershell
+.\deploy-poll-lite.ps1 -ConfigPath C:\deploy\frontend.yaml
+.\deploy-poll-lite.ps1 -ConfigPath C:\deploy\backend.yaml
+```
+
+⚠️ **`deploy_root`, `lock_file`, and `state_file` must differ between configs.**
+Sharing a lock file makes each run block the other; sharing a state file makes
+each one think the other's release is already deployed. The defaults derive from
+`deploy_root`, so giving each config a distinct `deploy_root` is enough.
+
+Because repointing a sub-application only recycles that application's pool,
+deploying the backend doesn't cold-start the frontend.
+
+**Publishing the two artifacts** — pick one:
+
+| Approach | How it works |
+|---|---|
+| One repo, one release, two assets | CI attaches `web.zip` and `api.zip` to the same release. Both configs poll the same tag and pick their own asset. Simplest, and keeps the two in lockstep. |
+| Two repos | Each has its own workflow, releases, and tags. Fully independent lifecycles. Best if the two ship on different cadences. |
+
 ## Configuration
 
 | Key | Default | Notes |
@@ -141,6 +176,7 @@ noisy in the log.
 | `release_asset_name` | `release.zip` | Must match what CI attaches. |
 | `github_token` | *(blank)* | Only for private repos. See [Limitations](#limitations). |
 | `iis_site_name` | — | **Required.** |
+| `iis_app_path` | `/` | Which app in the site to repoint. `/` = site root, `/api` = sub-application. |
 | `health_url` | — | **Required.** Must return 200 only when genuinely ready. |
 | `deploy_root` | — | **Required.** Same volume as the site. |
 | `log_file` / `lock_file` / `state_file` | under `deploy_root` | |
@@ -221,8 +257,13 @@ Known and deliberate:
   the highest-value next addition.
 - **No approval gate.** This is continuous *deployment* — every release ships
   automatically.
-- **One app per config.** A second app means a second `config.yaml` and a second
-  scheduled task, not a fork of the script.
+- **One deploy target per config.** Each `config.yaml` drives exactly one IIS
+  application. Deploying more — including a frontend and backend sharing one
+  site — means one config file and one scheduled task each, never a fork of the
+  script. See [Multiple apps in one site](#multiple-apps-in-one-site).
+- **No cross-app coordination.** Targets deploy and roll back independently, so
+  a backend that fails its health check rolls back while the frontend stays on
+  the new release. If a change spans both, they can be briefly mismatched.
 - **Private repo support is unverified.** The code path is written and handles
   the S3 redirect correctly, but has never been run against a real private repo.
 

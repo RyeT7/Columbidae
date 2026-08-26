@@ -29,6 +29,9 @@ $libRoot  = Join-Path $repoRoot 'lib'
 . (Join-Path $libRoot 'Config.ps1')
 . (Join-Path $libRoot 'Lock.ps1')
 . (Join-Path $libRoot 'Releases.ps1')
+# Iis.ps1 loads fine without IIS installed; only Resolve-IisPath is exercised
+# here, since everything else in it touches the IIS:\ provider.
+. (Join-Path $libRoot 'Iis.ps1')
 
 # Silence deploy logging; tests assert on behaviour, not log output.
 function Write-Log { param([string]$Message, [string]$Level = 'INFO') }
@@ -136,6 +139,21 @@ try {
     $d = Enter-DeployLock -Path $lock -StaleMinutes 30
     Assert-Equal $true  ($null -eq $d)          'recent orphaned lock is left alone'
     Remove-Item $lock -Force
+
+    Write-Host "`nIIS path resolution"
+    # A frontend at "/" and a backend at "/api" under one site must resolve to
+    # different provider paths, or the two configs would fight over one target.
+    Assert-Equal 'IIS:\Sites\My Site'         (Resolve-IisPath -SiteName 'My Site')                'site root when AppPath omitted'
+    Assert-Equal 'IIS:\Sites\My Site'         (Resolve-IisPath -SiteName 'My Site' -AppPath '/')   'site root for "/"'
+    Assert-Equal 'IIS:\Sites\My Site'         (Resolve-IisPath -SiteName 'My Site' -AppPath '')    'site root for empty string'
+    Assert-Equal 'IIS:\Sites\My Site'         (Resolve-IisPath -SiteName 'My Site' -AppPath '  ')  'site root for whitespace'
+    Assert-Equal 'IIS:\Sites\My Site\api'     (Resolve-IisPath -SiteName 'My Site' -AppPath '/api')   'leading slash'
+    Assert-Equal 'IIS:\Sites\My Site\api'     (Resolve-IisPath -SiteName 'My Site' -AppPath 'api')    'no leading slash'
+    Assert-Equal 'IIS:\Sites\My Site\api'     (Resolve-IisPath -SiteName 'My Site' -AppPath '/api/')  'trailing slash'
+    Assert-Equal 'IIS:\Sites\My Site\api'     (Resolve-IisPath -SiteName 'My Site' -AppPath '\api')   'backslash accepted'
+    Assert-Equal 'IIS:\Sites\My Site\api\v1'  (Resolve-IisPath -SiteName 'My Site' -AppPath '/api/v1') 'nested application'
+    Assert-Equal $true ((Resolve-IisPath -SiteName 'S' -AppPath '/') -ne (Resolve-IisPath -SiteName 'S' -AppPath '/api')) 'root and sub-app differ'
+    Assert-Throws { Resolve-IisPath -SiteName '' -AppPath '/api' } 'empty site name throws'
 
     Write-Host "`nRelease pruning"
     $pruneRoot = Join-Path $work 'releases'

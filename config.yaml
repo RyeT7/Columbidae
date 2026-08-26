@@ -19,8 +19,19 @@ release_asset_name: release.zip
 # handles the S3 redirect that GitHub's asset API issues.
 github_token:
 
-# --- Target: the IIS site being deployed ----------------------------------
+# --- Target: the IIS site/application being deployed ----------------------
 iis_site_name: Default Web Site
+
+# Which application within that site to repoint.
+#   /       the site's root application (the default)
+#   /api    a sub-application under the site
+#
+# This is what lets a frontend and a backend share one IIS site while
+# deploying independently: give each its own copy of this file with a
+# different iis_app_path, deploy_root, health_url, lock_file and state_file,
+# then register one scheduled task per file. Sharing deploy_root or lock_file
+# between two configs will make the two runs fight each other.
+iis_app_path: /
 
 # Must return HTTP 200 only once the app is genuinely ready to serve traffic.
 # The rollback decision depends entirely on this being accurate.

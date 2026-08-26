@@ -98,6 +98,9 @@ try {
     $assetName  = Get-ConfigValue -Config $config -Key 'release_asset_name' -Default 'release.zip'
     $token      = Get-ConfigValue -Config $config -Key 'github_token'
     $siteName   = Get-ConfigValue -Config $config -Key 'iis_site_name'      -Required
+    # "/" targets the site's root application; "/api" targets a sub-app under
+    # it, so a frontend and backend sharing one site can deploy independently.
+    $appPath    = Get-ConfigValue -Config $config -Key 'iis_app_path'       -Default '/'
     $healthUrl  = Get-ConfigValue -Config $config -Key 'health_url'         -Required
     $deployRoot = Get-ConfigValue -Config $config -Key 'deploy_root'        -Required
     $statePath  = Get-ConfigValue -Config $config -Key 'state_file' -Default (Join-Path $deployRoot 'deployed-tag.txt')
@@ -173,18 +176,19 @@ try {
     Expand-Archive -LiteralPath $zipPath -DestinationPath $releaseDir -Force
     Remove-Item -LiteralPath $zipPath -Force
 
-    $previousPath = Get-SitePhysicalPath -SiteName $siteName
-    Write-Log "Repointing IIS site '$siteName': $previousPath -> $releaseDir"
-    Set-SitePhysicalPath -SiteName $siteName -PhysicalPath $releaseDir
+    $previousPath = Get-SitePhysicalPath -SiteName $siteName -AppPath $appPath
+    $targetLabel  = if ($appPath -and $appPath.Trim('/', '\', ' ') -ne '') { "$siteName$appPath" } else { $siteName }
+    Write-Log "Repointing IIS target '$targetLabel': $previousPath -> $releaseDir"
+    Set-SitePhysicalPath -SiteName $siteName -PhysicalPath $releaseDir -AppPath $appPath
 
     if (-not (Test-SiteHealth -Url $healthUrl -Retries $healthRetries -DelaySeconds $healthDelay)) {
         Write-Log "Health check failed after $healthRetries attempts. Rolling back to $previousPath." 'ERROR'
-        Set-SitePhysicalPath -SiteName $siteName -PhysicalPath $previousPath
+        Set-SitePhysicalPath -SiteName $siteName -PhysicalPath $previousPath -AppPath $appPath
 
         if (Test-SiteHealth -Url $healthUrl -Retries $healthRetries -DelaySeconds $healthDelay) {
-            Write-Log "Rollback complete; site is healthy on the previous release. '$tag' was NOT deployed." 'ERROR'
+            Write-Log "Rollback complete; target is healthy on the previous release. '$tag' was NOT deployed." 'ERROR'
         } else {
-            Write-Log "ROLLBACK DID NOT RESTORE HEALTH. Site '$siteName' needs manual attention." 'ERROR'
+            Write-Log "ROLLBACK DID NOT RESTORE HEALTH. Target '$targetLabel' needs manual attention." 'ERROR'
         }
 
         # The state file is deliberately left untouched so the next tick
