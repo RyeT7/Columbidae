@@ -1,0 +1,50 @@
+# CI for the deploy pipeline itself. There is nothing to compile here -- this
+# repo is PowerShell, config and docs -- so this only parses and tests.
+#
+# The .NET app's build/release workflow does NOT belong in this repo; see
+# examples/deploy-release.yml, which is a template for the app's repository.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # windows-latest, and `shell: powershell` rather than `pwsh`, so this runs
+    # under Windows PowerShell 5.1 -- the same engine as the deploy VM. PS 7
+    # would pass on syntax and behaviour the VM never sees.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PowerShell version
+        shell: powershell
+        run: $PSVersionTable | Format-List
+
+      # Covers the files unit tests can't reach: Iis.ps1 and GitHub.ps1 need
+      # real IIS and real network, so a parse check is the only automated
+      # guard they get.
+      - name: Syntax check all scripts
+        shell: powershell
+        run: |
+          $failed = $false
+          Get-ChildItem -Path . -Recurse -Filter *.ps1 | ForEach-Object {
+              $errors = $null; $tokens = $null
+              [System.Management.Automation.Language.Parser]::ParseFile(
+                  $_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+              if ($errors) {
+                  $failed = $true
+                  Write-Host "SYNTAX ERROR  $($_.Name): $($errors[0].Message)"
+              } else {
+                  Write-Host "ok            $($_.Name)"
+              }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Unit tests
+        shell: powershell
+        run: .\tests\run-tests.ps1

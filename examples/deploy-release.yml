@@ -1,0 +1,86 @@
+# =============================================================================
+# TEMPLATE -- this file does NOT run from this repo, and must not be moved
+# into .github/workflows/ here.
+#
+# It belongs in the .NET APPLICATION's repository (the one containing the
+# .csproj). This repo holds only the deploy pipeline -- PowerShell, config and
+# docs -- and has no .NET source to build. Left here as documentation of the
+# contract the app's CI has to satisfy for deploy-poll-lite.ps1 to consume it.
+#
+# To use: copy to <app-repo>/.github/workflows/deploy-release.yml and set
+# PROJECT_PATH to the real .csproj.
+#
+# The four things that MUST match the deploy VM's config.yaml, or the poller
+# silently never deploys:
+#
+#   1. Asset filename ...... release.zip          <-> release_asset_name
+#   2. Marked --latest ..... the poller reads /releases/latest
+#   3. Tag format .......... deploy-<sha>         <-> stored in state_file
+#   4. Zip layout .......... archive root IS the web root (note the `cd
+#      publish` below -- zipping the folder instead nests everything one level
+#      down, IIS finds no web.config, the health check fails, and the deploy
+#      auto-rolls back)
+#
+# Deliberately no deploy job and no self-hosted runner: nothing may reach into
+# the deploy VM's LAN. CI drops the artifact at a GitHub Release; the VM polls
+# for it on its own schedule. See CLAUDE.md.
+# =============================================================================
+name: Build and publish deploy release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # required to create the release
+
+env:
+  # CHANGE ME: path to the web project in the app repo.
+  PROJECT_PATH: src/YourApp.Web/YourApp.Web.csproj
+  DOTNET_VERSION: '8.0.x'
+  RUNTIME_ID: win-x64
+
+concurrency:
+  # A newer push supersedes an in-flight build; the VM only ever pulls latest.
+  group: deploy-release
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore "$PROJECT_PATH" -r "$RUNTIME_ID"
+
+      - name: Publish
+        run: >
+          dotnet publish "$PROJECT_PATH"
+          -c Release
+          -r "$RUNTIME_ID"
+          --self-contained false
+          --no-restore
+          -o publish
+
+      # Contract #1 and #4: name must match release_asset_name, and `cd
+      # publish` first so the archive root is the web root.
+      - name: Package
+        run: cd publish && zip -qr ../release.zip .
+
+      # Contract #2 and #3: --latest, and the deploy-<sha> tag the poller
+      # compares against its state file.
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "deploy-${GITHUB_SHA}" release.zip
+          --title "Deploy ${GITHUB_SHA:0:7}"
+          --notes "Automated build of ${GITHUB_SHA} from ${GITHUB_REF_NAME}."
+          --latest
