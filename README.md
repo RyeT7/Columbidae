@@ -1,8 +1,8 @@
-# Hermes
+# Columbidae
 
 Pull-based IIS deployment for a Windows VM that cannot host a CI agent.
 
-[![Tests](https://github.com/RyeT7/Hermes/actions/workflows/tests.yml/badge.svg)](https://github.com/RyeT7/Hermes/actions/workflows/tests.yml)
+[![Tests](https://github.com/RyeT7/Columbidae/actions/workflows/tests.yml/badge.svg)](https://github.com/RyeT7/Columbidae/actions/workflows/tests.yml)
 
 A stateless PowerShell script, fired by Task Scheduler every few minutes, that
 pulls the latest build from GitHub Releases, swaps it into IIS, health-checks
@@ -119,7 +119,7 @@ Run it once by hand to confirm it works before scheduling it.
 ### 3. Register the scheduled task
 
 ```
-schtasks /create /tn "Hermes Deploy Poll" /sc minute /mo 3 /ru SYSTEM ^
+schtasks /create /tn "Columbidae Deploy Poll" /sc minute /mo 3 /ru SYSTEM ^
   /tr "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\deploy\deploy-poll-lite.ps1\""
 ```
 
