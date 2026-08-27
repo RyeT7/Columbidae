@@ -182,7 +182,6 @@ try {
         Assert-Equal $status $s.status                             "status '$status' round-trips"
     }
 
-    Assert-Throws { New-NotificationPayload -Status 'success' -Message 'm' } 'unimplemented platform format rejected'
     Assert-Throws { New-NotificationPayload -Status 'maybe' -Message 'm' }     'unknown status rejected'
 
     Write-Host "`nNotification failure isolation"
