@@ -73,7 +73,9 @@ back at the previous folder — no re-download, no partial state.
 | `deploy-poll-lite.ps1` | Entry point. The only thing Task Scheduler invokes. Orchestration only. |
 | `lib\*.ps1` | The work, split by concern: `Logging`, `Config`, `Lock`, `GitHub`, `Iis`, `Releases`. Dot-sourced, never `Import-Module`. |
 | `config.yaml` | All per-deployment settings. Reconfigure here, not in the script. |
-| `tests\run-tests.ps1` | Unit tests for config parsing, the overlap guard, and release pruning. No Pester required. |
+| `tests\run-tests.ps1` | Test runner. Discovers the cases, isolates them, tallies results. No Pester required. |
+| `tests\cases\*.Tests.ps1` | The assertions, one file per lib concern: `Config`, `Lock`, `Iis`, `Notify`, `Logging`, `Releases`, plus an `Encoding` source lint. |
+| `tests\TestFramework.ps1` | `Assert-Equal` / `Assert-Throws` and the shared pass/fail tally. |
 | `examples\deploy-release.yml` | **Template** for the *app repo's* build workflow. Not run from this repo. |
 
 ## Setup
@@ -305,12 +307,33 @@ Two guarantees worth knowing:
 .\tests\run-tests.ps1
 ```
 
-Covers config parsing, the overlap guard, and release pruning — everything that
-needs no GitHub, IIS, or network. Exits non-zero on failure. Run it on a dev
-machine, not the VM.
+Covers config parsing, the overlap guard, IIS path resolution, the notification
+payload, log rotation, and release pruning — everything that needs no GitHub,
+IIS, or network. Exits non-zero on failure. Run it on a dev machine, not the VM.
 
 `lib\Iis.ps1` and `lib\GitHub.ps1` require real IIS and a real network, so CI
 only syntax-checks them.
+
+### Adding a test
+
+Assertions live in `tests\cases\`, one file per lib concern, so a change to one
+area touches one file. To cover a new one, drop `<Concern>.Tests.ps1` in that
+folder defining a single function:
+
+```powershell
+function Test-<Concern> {
+    param(
+        [Parameter(Mandatory)][string] $WorkDir,   # private temp folder, cleaned up for you
+        [Parameter(Mandatory)][string] $RepoRoot
+    )
+    Assert-Equal 'expected' (Some-Function) 'what this proves'
+}
+```
+
+The runner picks it up by name — no registration list to update. It hands each
+case its own workspace and records a case that throws as a failure rather than
+letting it take the rest of the run down with it. A file whose function is
+missing or misnamed fails the run instead of being skipped silently.
 
 ## Requirements
 
