@@ -187,7 +187,6 @@ deploying the backend doesn't cold-start the frontend.
 | `keep_releases` | `5` | Live and previous release are never pruned. |
 | `lock_stale_minutes` | `30` | Locks older than this are treated as abandoned. |
 | `webhook_url` | *(blank)* | Blank disables notifications. **A credential — never commit a real one.** |
-| `webhook_format` | `raw` | Only `raw` is implemented; the key is the extension point for future adapters. |
 | `webhook_timeout_seconds` | `10` | Kept short so a hung endpoint can't hold the lock. |
 | `http_timeout_seconds` | `120` | |
 
@@ -255,7 +254,7 @@ Optional. Set `webhook_url` to enable; leave it blank and nothing is sent.
 
 ```yaml
 webhook_url: https://your-endpoint.example.com/deploy-events
-webhook_format: raw
+webhook_timeout_seconds: 10
 ```
 
 Notifications fire on **deploy success**, **rollback**, **failed rollback**, and
@@ -282,7 +281,7 @@ A single platform-neutral JSON event is POSTed:
 Slack or Teams message is a consumer's job — putting that in the deploy path
 would mean the pipeline carrying platform-specific knowledge it has no reason
 to hold. Point `webhook_url` at anything that speaks HTTP and translate there.
-`webhook_format` exists as the extension point if adapters are added later.
+There is exactly one payload shape, and no format switch to configure.
 
 Treat the field names as a contract: adding fields is safe, renaming or
 removing them is not. The test suite asserts the exact schema so a break is
