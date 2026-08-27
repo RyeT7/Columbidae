@@ -160,7 +160,7 @@ try {
     # This schema is a published contract -- consumers parse these field names,
     # so renaming or dropping one is a breaking change. These assertions exist
     # to make that break loud rather than silent.
-    $obj = (New-NotificationPayload -Format 'raw' -Status 'error' -Message 'Boom.' -Tag 'deploy-xyz' -Target 'S/api') | ConvertFrom-Json
+    $obj = (New-NotificationPayload -Status 'error' -Message 'Boom.' -Tag 'deploy-xyz' -Target 'S/api') | ConvertFrom-Json
     Assert-Equal 'error'      $obj.status                          'status field'
     Assert-Equal 'deploy-xyz' $obj.tag                             'tag field'
     Assert-Equal 'S/api'      $obj.target                          'target field'
@@ -173,24 +173,24 @@ try {
     Assert-Equal ($expected -join ',') ($actual -join ',')         'schema has exactly the documented fields'
 
     # Optional fields absent early in a run must still serialise, not vanish.
-    $partial = (New-NotificationPayload -Format 'raw' -Status 'error' -Message 'Failed before the release was known.') | ConvertFrom-Json
+    $partial = (New-NotificationPayload -Status 'error' -Message 'Failed before the release was known.') | ConvertFrom-Json
     Assert-Equal '' $partial.tag                                   'empty tag serialises as empty string'
     Assert-Equal '' $partial.target                                'empty target serialises as empty string'
 
     foreach ($status in 'success', 'rolled-back', 'rollback-failed', 'error') {
-        $s = (New-NotificationPayload -Format 'raw' -Status $status -Message 'm') | ConvertFrom-Json
+        $s = (New-NotificationPayload -Status $status -Message 'm') | ConvertFrom-Json
         Assert-Equal $status $s.status                             "status '$status' round-trips"
     }
 
-    Assert-Throws { New-NotificationPayload -Format 'slack' -Status 'success' -Message 'm' } 'unimplemented platform format rejected'
-    Assert-Throws { New-NotificationPayload -Format 'raw' -Status 'maybe' -Message 'm' }     'unknown status rejected'
+    Assert-Throws { New-NotificationPayload -Status 'success' -Message 'm' } 'unimplemented platform format rejected'
+    Assert-Throws { New-NotificationPayload -Status 'maybe' -Message 'm' }     'unknown status rejected'
 
     Write-Host "`nNotification failure isolation"
     # The property the whole design depends on: a broken webhook must never
     # throw into the deploy path. Port 9 refuses instantly; no traffic leaves.
     $threw = $false
     try {
-        Send-DeployNotification -Url 'http://127.0.0.1:9/' -Format 'raw' -Status 'success' `
+        Send-DeployNotification -Url 'http://127.0.0.1:9/' -Status 'success' `
             -Message 'unreachable endpoint' -TimeoutSeconds 2
     } catch { $threw = $true }
     Assert-Equal $false $threw 'unreachable webhook does not throw'

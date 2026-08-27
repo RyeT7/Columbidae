@@ -68,7 +68,6 @@ function Send-DeployNotification {
     #>
     param(
         [string] $Url,
-        [string] $Format = 'raw',
         [Parameter(Mandatory)][string] $Status,
         [Parameter(Mandatory)][string] $Message,
         [string] $Tag = '',
