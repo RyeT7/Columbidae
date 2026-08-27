@@ -71,6 +71,7 @@ back at the previous folder — no re-download, no partial state.
 | Path | Purpose |
 |---|---|
 | `deploy-poll-lite.ps1` | Entry point. The only thing Task Scheduler invokes. Orchestration only. |
+| `install-task.ps1` | One-shot installer for the scheduled task. Run once, elevated. Not part of the deploy path. |
 | `lib\*.ps1` | The work, split by concern: `Logging`, `Config`, `Lock`, `GitHub`, `Iis`, `Releases`. Dot-sourced, never `Import-Module`. |
 | `config.yaml` | All per-deployment settings. Reconfigure here, not in the script. |
 | `tests\run-tests.ps1` | Test runner. Discovers the cases, isolates them, tallies results. No Pester required. |
@@ -120,19 +121,33 @@ Run it once by hand to confirm it works before scheduling it.
 
 ### 3. Register the scheduled task
 
-```
-schtasks /create /tn "Columbidae Deploy Poll" /sc minute /mo 3 /ru SYSTEM ^
-  /tr "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\deploy\deploy-poll-lite.ps1\""
+From an **elevated** prompt:
+
+```powershell
+.\install-task.ps1
 ```
 
-⚠️ Then open the task's **Settings** tab and tick **"If the task is already
-running, do not start a new instance."** `schtasks` cannot set this from the
-command line. It's a second line of defense alongside the script's own lock
-file, not a replacement for it.
+Preview it first with `.\install-task.ps1 -WhatIf` — that works unelevated and
+writes nothing.
 
-Keep the interval longer than a worst-case run (download + extract + health
+The interval comes from `poll_interval_minutes` in `config.yaml` (default 3).
+The installer reads it **at install time only**, so changing it later means
+re-running `install-task.ps1`; the registered task keeps whatever it was built
+with. Keep it longer than a worst-case run (download + extract + health
 retries), or most polls just hit the overlap guard and skip — harmless, but
-noisy in the log.
+noisy in the log. The installer warns if the interval looks too tight against
+`health_retries` or `lock_stale_minutes`.
+
+The installer is doing one thing you can't do from `schtasks`: setting **"If the
+task is already running, do not start a new instance"**, which previously had to
+be ticked by hand in the task's Settings tab. That's a second line of defense
+alongside the script's own lock file, not a replacement for it. It also caps
+execution time (the default is *three days*), refuses to schedule an incomplete
+install or an unparseable config, and reads the task back afterwards to prove
+the repetition and overlap settings actually took.
+
+Re-run it any time to reset a task that's drifted — it overwrites that one task
+and leaves the rest of the machine alone.
 
 ## Multiple apps in one site
 
@@ -153,6 +168,19 @@ release_asset_name: web.zip        release_asset_name: api.zip
 .\deploy-poll-lite.ps1 -ConfigPath C:\deploy\frontend.yaml
 .\deploy-poll-lite.ps1 -ConfigPath C:\deploy\backend.yaml
 ```
+
+Then one task per config:
+
+```powershell
+.\install-task.ps1 -ConfigPath C:\deploy\frontend.yaml
+.\install-task.ps1 -ConfigPath C:\deploy\backend.yaml
+```
+
+Task names are derived from the config file name — `Columbidae Deploy Poll
+(frontend)` and `Columbidae Deploy Poll (backend)` — so installing the second
+app can't silently overwrite the first one's task. Override with `-TaskName` if
+you want something else. Give each config its own `deploy_root`, `lock_file`,
+`state_file` and `log_file`; sharing any of those makes the two runs fight.
 
 ⚠️ **`deploy_root`, `lock_file`, and `state_file` must differ between configs.**
 Sharing a lock file makes each run block the other; sharing a state file makes

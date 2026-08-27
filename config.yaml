@@ -40,8 +40,8 @@ health_url: http://localhost/health
 # --- Paths on the deploy VM -----------------------------------------------
 # Each deploy extracts into deploy_root\release-<timestamp>. Must be on the
 # same volume as the IIS site for the swap to stay fast.
-deploy_root: C:\inetpub\deployments\odysseus
-log_file: C:\inetpub\deployments\odysseus\deploy.log
+deploy_root: C:\inetpub\deployments\columbidae
+log_file: C:\inetpub\deployments\columbidae\deploy.log
 
 # Log rotation. deploy.log is rolled to deploy.log.1, .2, ... once it passes
 # log_max_size_mb; the oldest is discarded. Hard ceiling on disk is
@@ -49,10 +49,17 @@ log_file: C:\inetpub\deployments\odysseus\deploy.log
 # Set log_max_size_mb to 0 to disable rotation and let the log grow forever.
 log_max_size_mb: 5
 log_keep: 3
-lock_file: C:\inetpub\deployments\odysseus\deploy.lock
-state_file: C:\inetpub\deployments\odysseus\deployed-tag.txt
+lock_file: C:\inetpub\deployments\columbidae\deploy.lock
+state_file: C:\inetpub\deployments\columbidae\deployed-tag.txt
 
 # --- Behaviour -------------------------------------------------------------
+# How often Task Scheduler runs the deploy script. Read by install-task.ps1
+# at install time only -- the running task keeps whatever interval it was
+# registered with, so changing this means re-running install-task.ps1.
+# Keep it comfortably above the worst-case run time (download + extract +
+# health check retries), or most ticks just hit the overlap guard and skip.
+poll_interval_minutes: 3
+
 # Health check retries after the physical path swap, and the wait between
 # them. retries * delay should comfortably exceed cold-start time.
 health_retries: 10
