@@ -184,6 +184,9 @@ deploying the backend doesn't cold-start the frontend.
 | `health_retry_delay_seconds` | `3` | `retries × delay` must exceed cold-start time. |
 | `keep_releases` | `5` | Live and previous release are never pruned. |
 | `lock_stale_minutes` | `30` | Locks older than this are treated as abandoned. |
+| `webhook_url` | *(blank)* | Blank disables notifications. **A credential — never commit a real one.** |
+| `webhook_format` | `raw` | Only `raw` is implemented; the key is the extension point for future adapters. |
+| `webhook_timeout_seconds` | `10` | Kept short so a hung endpoint can't hold the lock. |
 | `http_timeout_seconds` | `120` | |
 
 The parser is a deliberately minimal flat `key: value` reader — no nesting, no
@@ -229,6 +232,57 @@ site needs manual attention.
 `Get-Process powershell` during a manual run. It should spike briefly during
 `Expand-Archive` and drop to nothing the instant the script exits.
 
+## Notifications
+
+Optional. Set `webhook_url` to enable; leave it blank and nothing is sent.
+
+```yaml
+webhook_url: https://your-endpoint.example.com/deploy-events
+webhook_format: raw
+```
+
+Notifications fire on **deploy success**, **rollback**, **failed rollback**, and
+**fatal errors** — never on routine polls that find nothing new, which at a
+3-minute interval would be pure noise.
+
+A single platform-neutral JSON event is POSTed:
+
+```json
+{
+  "status":    "rolled-back",
+  "tag":       "deploy-a1b2c3d",
+  "target":    "My Site/api",
+  "message":   "Health check failed after 10 attempts. Rolled back...",
+  "host":      "WEBVM01",
+  "timestamp": "2026-08-26T14:22:30Z"
+}
+```
+
+`status` is one of `success`, `rolled-back`, `rollback-failed`, or `error`.
+`tag` and `target` may be empty if the run failed before determining them.
+
+**Chat platforms are deliberately not built in.** Reshaping an event into a
+Slack or Teams message is a consumer's job — putting that in the deploy path
+would mean the pipeline carrying platform-specific knowledge it has no reason
+to hold. Point `webhook_url` at anything that speaks HTTP and translate there.
+`webhook_format` exists as the extension point if adapters are added later.
+
+Treat the field names as a contract: adding fields is safe, renaming or
+removing them is not. The test suite asserts the exact schema so a break is
+loud rather than silent.
+
+Two guarantees worth knowing:
+
+- **A broken webhook never breaks a deploy.** Every send is wrapped and
+  downgraded to a `WARN` in the log. An unreachable endpoint is a non-event.
+- **Every send has a hard timeout.** `Invoke-RestMethod` defaults to *waiting
+  indefinitely*; an endpoint that accepts the connection but never replies
+  would otherwise hold the deploy lock until the stale-lock threshold broke it.
+
+> ⚠️ A webhook URL is a credential — anyone holding it can post events to your
+> endpoint. Set it only in the copy of `config.yaml` on the deploy target, never
+> in a committed one. The same applies to `github_token`.
+
 ## Testing
 
 ```powershell
@@ -253,10 +307,10 @@ only syntax-checks them.
 
 Known and deliberate:
 
-- **No notifications.** A failed deploy is only visible in the log. A webhook is
-  the highest-value next addition.
 - **No approval gate.** This is continuous *deployment* — every release ships
-  automatically.
+  automatically. Publishing releases as prereleases and promoting them by hand
+  gates this without any script change, since `/releases/latest` ignores
+  prereleases.
 - **One deploy target per config.** Each `config.yaml` drives exactly one IIS
   application. Deploying more — including a frontend and backend sharing one
   site — means one config file and one scheduled task each, never a fork of the

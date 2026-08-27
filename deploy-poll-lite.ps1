@@ -69,6 +69,7 @@ $RequiredLibs = @(
     'GitHub.ps1'     # Get-LatestRelease, Save-ReleaseAsset
     'Iis.ps1'        # Get/Set-SitePhysicalPath, Test-SiteHealth
     'Releases.ps1'   # Remove-OldReleases
+    'Notify.ps1'     # Send-DeployNotification
 )
 
 $libRoot = Join-Path $PSScriptRoot 'lib'
@@ -107,11 +108,20 @@ try {
     $lockPath   = Get-ConfigValue -Config $config -Key 'lock_file'  -Default (Join-Path $deployRoot 'deploy.lock')
     $logPath    = Get-ConfigValue -Config $config -Key 'log_file'   -Default (Join-Path $deployRoot 'deploy.log')
 
+    # Optional; blank webhook_url disables notifications entirely.
+    $webhookUrl    = Get-ConfigValue -Config $config -Key 'webhook_url'
+    $webhookFormat = Get-ConfigValue -Config $config -Key 'webhook_format' -Default 'raw'
+
     $healthRetries = Get-ConfigInt -Config $config -Key 'health_retries'             -Default 10
     $healthDelay   = Get-ConfigInt -Config $config -Key 'health_retry_delay_seconds' -Default 3
     $keepReleases  = Get-ConfigInt -Config $config -Key 'keep_releases'              -Default 5
     $staleMinutes  = Get-ConfigInt -Config $config -Key 'lock_stale_minutes'         -Default 30
     $httpTimeout   = Get-ConfigInt -Config $config -Key 'http_timeout_seconds'       -Default 120
+    $webhookTimeout = Get-ConfigInt -Config $config -Key 'webhook_timeout_seconds'   -Default 10
+
+    # Built here rather than mid-deploy so the failure paths can always name the
+    # target, even when the run dies before reaching the swap.
+    $targetLabel = if ($appPath -and $appPath.Trim('/', '\', ' ') -ne '') { "$siteName$appPath" } else { $siteName }
 
     foreach ($dir in @($deployRoot, (Split-Path -Parent $logPath), (Split-Path -Parent $lockPath))) {
         if ($dir -and -not (Test-Path -LiteralPath $dir)) {
@@ -130,6 +140,9 @@ try {
 #region Deploy
 
 $lockStream = $null
+# Initialised so the catch block can reference it even if the run dies before
+# the release is known -- Set-StrictMode would throw on an unset variable.
+$tag = ''
 
 try {
     $lockStream = Enter-DeployLock -Path $lockPath -StaleMinutes $staleMinutes
@@ -177,7 +190,6 @@ try {
     Remove-Item -LiteralPath $zipPath -Force
 
     $previousPath = Get-SitePhysicalPath -SiteName $siteName -AppPath $appPath
-    $targetLabel  = if ($appPath -and $appPath.Trim('/', '\', ' ') -ne '') { "$siteName$appPath" } else { $siteName }
     Write-Log "Repointing IIS target '$targetLabel': $previousPath -> $releaseDir"
     Set-SitePhysicalPath -SiteName $siteName -PhysicalPath $releaseDir -AppPath $appPath
 
@@ -187,8 +199,14 @@ try {
 
         if (Test-SiteHealth -Url $healthUrl -Retries $healthRetries -DelaySeconds $healthDelay) {
             Write-Log "Rollback complete; target is healthy on the previous release. '$tag' was NOT deployed." 'ERROR'
+            Send-DeployNotification -Url $webhookUrl -Format $webhookFormat -TimeoutSeconds $webhookTimeout `
+                -Status 'rolled-back' -Tag $tag -Target $targetLabel `
+                -Message "Health check failed after $healthRetries attempts. Rolled back to the previous release; the target is healthy. This release was NOT deployed."
         } else {
             Write-Log "ROLLBACK DID NOT RESTORE HEALTH. Target '$targetLabel' needs manual attention." 'ERROR'
+            Send-DeployNotification -Url $webhookUrl -Format $webhookFormat -TimeoutSeconds $webhookTimeout `
+                -Status 'rollback-failed' -Tag $tag -Target $targetLabel `
+                -Message "Health check failed AND rollback did not restore health. The target is down and needs manual attention."
         }
 
         # The state file is deliberately left untouched so the next tick
@@ -198,12 +216,18 @@ try {
 
     Set-Content -LiteralPath $statePath -Value $tag -Encoding UTF8
     Write-Log "Deployed '$tag' successfully."
+    Send-DeployNotification -Url $webhookUrl -Format $webhookFormat -TimeoutSeconds $webhookTimeout `
+        -Status 'success' -Tag $tag -Target $targetLabel `
+        -Message "Deployed successfully from $previousPath to $releaseDir. Health check passed."
 
     Remove-OldReleases -DeployRoot $deployRoot -Keep $keepReleases -Protected @($releaseDir, $previousPath)
     exit 0
 } catch {
     Write-Log "Deploy run failed: $($_.Exception.Message)" 'ERROR'
     Write-Log $_.ScriptStackTrace 'ERROR'
+    Send-DeployNotification -Url $webhookUrl -Format $webhookFormat -TimeoutSeconds $webhookTimeout `
+        -Status 'error' -Tag $tag -Target $targetLabel `
+        -Message "Deploy run failed before completing: $($_.Exception.Message)"
     exit 2
 } finally {
     Exit-DeployLock -Stream $lockStream -Path $lockPath

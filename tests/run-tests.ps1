@@ -32,6 +32,7 @@ $libRoot  = Join-Path $repoRoot 'lib'
 # Iis.ps1 loads fine without IIS installed; only Resolve-IisPath is exercised
 # here, since everything else in it touches the IIS:\ provider.
 . (Join-Path $libRoot 'Iis.ps1')
+. (Join-Path $libRoot 'Notify.ps1')
 
 # Silence deploy logging; tests assert on behaviour, not log output.
 function Write-Log { param([string]$Message, [string]$Level = 'INFO') }
@@ -154,6 +155,63 @@ try {
     Assert-Equal 'IIS:\Sites\My Site\api\v1'  (Resolve-IisPath -SiteName 'My Site' -AppPath '/api/v1') 'nested application'
     Assert-Equal $true ((Resolve-IisPath -SiteName 'S' -AppPath '/') -ne (Resolve-IisPath -SiteName 'S' -AppPath '/api')) 'root and sub-app differ'
     Assert-Throws { Resolve-IisPath -SiteName '' -AppPath '/api' } 'empty site name throws'
+
+    Write-Host "`nNotification payload (raw event schema)"
+    # This schema is a published contract -- consumers parse these field names,
+    # so renaming or dropping one is a breaking change. These assertions exist
+    # to make that break loud rather than silent.
+    $obj = (New-NotificationPayload -Format 'raw' -Status 'error' -Message 'Boom.' -Tag 'deploy-xyz' -Target 'S/api') | ConvertFrom-Json
+    Assert-Equal 'error'      $obj.status                          'status field'
+    Assert-Equal 'deploy-xyz' $obj.tag                             'tag field'
+    Assert-Equal 'S/api'      $obj.target                          'target field'
+    Assert-Equal 'Boom.'      $obj.message                         'message field'
+    Assert-Equal $env:COMPUTERNAME $obj.host                       'host field identifies the deploy target'
+    Assert-Equal $true ($obj.timestamp -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$') 'timestamp is ISO 8601 UTC'
+
+    $expected = @('status', 'tag', 'target', 'message', 'host', 'timestamp') | Sort-Object
+    $actual   = $obj.PSObject.Properties.Name | Sort-Object
+    Assert-Equal ($expected -join ',') ($actual -join ',')         'schema has exactly the documented fields'
+
+    # Optional fields absent early in a run must still serialise, not vanish.
+    $partial = (New-NotificationPayload -Format 'raw' -Status 'error' -Message 'Failed before the release was known.') | ConvertFrom-Json
+    Assert-Equal '' $partial.tag                                   'empty tag serialises as empty string'
+    Assert-Equal '' $partial.target                                'empty target serialises as empty string'
+
+    foreach ($status in 'success', 'rolled-back', 'rollback-failed', 'error') {
+        $s = (New-NotificationPayload -Format 'raw' -Status $status -Message 'm') | ConvertFrom-Json
+        Assert-Equal $status $s.status                             "status '$status' round-trips"
+    }
+
+    Assert-Throws { New-NotificationPayload -Format 'slack' -Status 'success' -Message 'm' } 'unimplemented platform format rejected'
+    Assert-Throws { New-NotificationPayload -Format 'raw' -Status 'maybe' -Message 'm' }     'unknown status rejected'
+
+    Write-Host "`nNotification failure isolation"
+    # The property the whole design depends on: a broken webhook must never
+    # throw into the deploy path. Port 9 refuses instantly; no traffic leaves.
+    $threw = $false
+    try {
+        Send-DeployNotification -Url 'http://127.0.0.1:9/' -Format 'raw' -Status 'success' `
+            -Message 'unreachable endpoint' -TimeoutSeconds 2
+    } catch { $threw = $true }
+    Assert-Equal $false $threw 'unreachable webhook does not throw'
+
+    $threw = $false
+    try { Send-DeployNotification -Url '' -Status 'success' -Message 'disabled' } catch { $threw = $true }
+    Assert-Equal $false $threw 'blank url is a silent no-op'
+
+    # Must emit nothing to the pipeline, or callers' return values get polluted.
+    $emitted = Send-DeployNotification -Url '' -Status 'success' -Message 'quiet'
+    Assert-Equal $true ($null -eq $emitted) 'send emits nothing to the pipeline'
+
+    Write-Host "`nSource encoding"
+    # PS 5.1 reads BOM-less .ps1 files as ANSI, so a stray non-ASCII character
+    # in source gets silently mangled on the deploy target.
+    $nonAscii = @()
+    Get-ChildItem -Path $repoRoot -Recurse -Filter *.ps1 | ForEach-Object {
+        $content = [System.IO.File]::ReadAllText($_.FullName)
+        if ($content -cmatch '[^\x00-\x7F]') { $nonAscii += $_.Name }
+    }
+    Assert-Equal '' ($nonAscii -join ',') 'all .ps1 files are pure ASCII'
 
     Write-Host "`nRelease pruning"
     $pruneRoot = Join-Path $work 'releases'

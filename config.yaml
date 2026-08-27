@@ -59,5 +59,26 @@ keep_releases: 5
 # is broken. Keep it well above the worst-case run time.
 lock_stale_minutes: 30
 
+# --- Notifications (optional) ---------------------------------------------
+# Leave webhook_url blank to disable. Notifications fire on success, rollback,
+# failed rollback, and fatal errors -- never on routine polls that find
+# nothing new. A notification failure is logged as a WARN and never fails a
+# deploy.
+#
+# SECURITY: a webhook URL is a credential -- anyone holding it can post to
+# your channel. Do not commit a real one. Set it only in the copy of this file
+# that lives on the deploy target. The same applies to github_token above.
+webhook_url:
+
+# Payload shape. Only "raw" is implemented today: a platform-neutral JSON
+# object (status, tag, target, message, host, timestamp). Reshaping it for a
+# specific chat platform is a consumer's job -- adapters may be added here
+# later, which is why this key exists now rather than being hardcoded.
+webhook_format: raw
+
+# Kept short on purpose. An endpoint that accepts the connection but never
+# responds would otherwise hold the deploy lock open.
+webhook_timeout_seconds: 10
+
 # Seconds to wait for the GitHub API / asset download before giving up.
 http_timeout_seconds: 120
