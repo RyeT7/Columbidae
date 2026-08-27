@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Stateless pull-based deployer for an IIS site. Run by Task Scheduler.
 
@@ -110,7 +110,6 @@ try {
 
     # Optional; blank webhook_url disables notifications entirely.
     $webhookUrl    = Get-ConfigValue -Config $config -Key 'webhook_url'
-    $webhookFormat = Get-ConfigValue -Config $config -Key 'webhook_format' -Default 'raw'
 
     $healthRetries = Get-ConfigInt -Config $config -Key 'health_retries'             -Default 10
     $healthDelay   = Get-ConfigInt -Config $config -Key 'health_retry_delay_seconds' -Default 3
@@ -129,7 +128,12 @@ try {
         }
     }
 
-    $script:LogFile = $logPath
+    # Bounded log size matters here: this host is storage-sensitive, and a
+    # persistent failure would otherwise append on every tick forever.
+    # Worst case on disk is (log_keep + 1) * log_max_size_mb.
+    $script:LogFile     = $logPath
+    $script:LogMaxBytes = (Get-ConfigInt -Config $config -Key 'log_max_size_mb' -Default 5) * 1MB
+    $script:LogKeep     = Get-ConfigInt -Config $config -Key 'log_keep' -Default 3
 } catch {
     Write-Host "FATAL: $($_.Exception.Message)"
     exit 2
@@ -199,12 +203,12 @@ try {
 
         if (Test-SiteHealth -Url $healthUrl -Retries $healthRetries -DelaySeconds $healthDelay) {
             Write-Log "Rollback complete; target is healthy on the previous release. '$tag' was NOT deployed." 'ERROR'
-            Send-DeployNotification -Url $webhookUrl -Format $webhookFormat -TimeoutSeconds $webhookTimeout `
+            Send-DeployNotification -Url $webhookUrl -TimeoutSeconds $webhookTimeout `
                 -Status 'rolled-back' -Tag $tag -Target $targetLabel `
                 -Message "Health check failed after $healthRetries attempts. Rolled back to the previous release; the target is healthy. This release was NOT deployed."
         } else {
             Write-Log "ROLLBACK DID NOT RESTORE HEALTH. Target '$targetLabel' needs manual attention." 'ERROR'
-            Send-DeployNotification -Url $webhookUrl -Format $webhookFormat -TimeoutSeconds $webhookTimeout `
+            Send-DeployNotification -Url $webhookUrl -TimeoutSeconds $webhookTimeout `
                 -Status 'rollback-failed' -Tag $tag -Target $targetLabel `
                 -Message "Health check failed AND rollback did not restore health. The target is down and needs manual attention."
         }
@@ -216,7 +220,7 @@ try {
 
     Set-Content -LiteralPath $statePath -Value $tag -Encoding UTF8
     Write-Log "Deployed '$tag' successfully."
-    Send-DeployNotification -Url $webhookUrl -Format $webhookFormat -TimeoutSeconds $webhookTimeout `
+    Send-DeployNotification -Url $webhookUrl -TimeoutSeconds $webhookTimeout `
         -Status 'success' -Tag $tag -Target $targetLabel `
         -Message "Deployed successfully from $previousPath to $releaseDir. Health check passed."
 
@@ -225,7 +229,7 @@ try {
 } catch {
     Write-Log "Deploy run failed: $($_.Exception.Message)" 'ERROR'
     Write-Log $_.ScriptStackTrace 'ERROR'
-    Send-DeployNotification -Url $webhookUrl -Format $webhookFormat -TimeoutSeconds $webhookTimeout `
+    Send-DeployNotification -Url $webhookUrl -TimeoutSeconds $webhookTimeout `
         -Status 'error' -Tag $tag -Target $targetLabel `
         -Message "Deploy run failed before completing: $($_.Exception.Message)"
     exit 2

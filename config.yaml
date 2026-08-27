@@ -42,6 +42,13 @@ health_url: http://localhost/health
 # same volume as the IIS site for the swap to stay fast.
 deploy_root: C:\inetpub\deployments\odysseus
 log_file: C:\inetpub\deployments\odysseus\deploy.log
+
+# Log rotation. deploy.log is rolled to deploy.log.1, .2, ... once it passes
+# log_max_size_mb; the oldest is discarded. Hard ceiling on disk is
+# (log_keep + 1) * log_max_size_mb -- 20 MB with these defaults.
+# Set log_max_size_mb to 0 to disable rotation and let the log grow forever.
+log_max_size_mb: 5
+log_keep: 3
 lock_file: C:\inetpub\deployments\odysseus\deploy.lock
 state_file: C:\inetpub\deployments\odysseus\deployed-tag.txt
 
@@ -69,12 +76,6 @@ lock_stale_minutes: 30
 # your channel. Do not commit a real one. Set it only in the copy of this file
 # that lives on the deploy target. The same applies to github_token above.
 webhook_url:
-
-# Payload shape. Only "raw" is implemented today: a platform-neutral JSON
-# object (status, tag, target, message, host, timestamp). Reshaping it for a
-# specific chat platform is a consumer's job -- adapters may be added here
-# later, which is why this key exists now rather than being hardcoded.
-webhook_format: raw
 
 # Kept short on purpose. An endpoint that accepts the connection but never
 # responds would otherwise hold the deploy lock open.

@@ -180,6 +180,8 @@ deploying the backend doesn't cold-start the frontend.
 | `health_url` | — | **Required.** Must return 200 only when genuinely ready. |
 | `deploy_root` | — | **Required.** Same volume as the site. |
 | `log_file` / `lock_file` / `state_file` | under `deploy_root` | |
+| `log_max_size_mb` | `5` | Rotate past this size. `0` disables rotation. |
+| `log_keep` | `3` | Archives kept. Disk ceiling is `(log_keep + 1) × log_max_size_mb`. |
 | `health_retries` | `10` | |
 | `health_retry_delay_seconds` | `3` | `retries × delay` must exceed cold-start time. |
 | `keep_releases` | `5` | Live and previous release are never pruned. |
@@ -206,7 +208,22 @@ Get-Content C:\inetpub\deployments\<app>\deploy.log -Tail 40 -Wait
 ```
 
 Routine polls that find nothing new are intentionally **not** logged — at a
-3-minute interval that would bury everything that matters.
+3-minute interval that would bury everything that matters. A quiet day writes
+nothing at all.
+
+**Disk usage is bounded.** `deploy.log` rotates to `deploy.log.1`, `.2`, … once
+it passes `log_max_size_mb`, and the oldest is dropped. The ceiling is
+`(log_keep + 1) × log_max_size_mb` — **20 MB** with the defaults, and only
+reached if something is failing on every tick. Set `log_max_size_mb: 0` to
+disable rotation.
+
+Rotation runs inline during a normal deploy run, not from any background
+process — nothing is left resident to do housekeeping. A rotation failure is
+logged and ignored rather than failing the deploy.
+
+> Releases, not logs, are the larger consumer: `keep_releases × published size`
+> under `deploy_root`. A 200 MB app with the default `keep_releases: 5` holds
+> about 1 GB. Lower it if the host is tight on storage.
 
 **Exit codes**
 

@@ -35,8 +35,9 @@
     ASCII only, deliberately. Windows PowerShell 5.1 reads .ps1 files without a
     BOM as ANSI, so non-ASCII characters in source get mangled on the target.
 
-    -Format is the extension point for future platform adapters. 'raw' is the
-    only one implemented; add cases to the switch and the ValidateSet together.
+    Platform adapters, if ever added, belong on top of this event rather than
+    inside it -- the pipeline emits what happened, consumers decide what it
+    should look like.
 #>
 
 function New-NotificationPayload {
