@@ -105,6 +105,15 @@ if (-not (Get-Command -Name Register-ScheduledTask -ErrorAction SilentlyContinue
         'It ships with Windows 8 / Server 2012 and later.'
 }
 
+# deploy-poll-lite.ps1 only imports WebAdministration once it has a release to
+# deploy, so a missing module would otherwise stay invisible until the first
+# real deploy -- the worst moment to discover it. Checked here instead, where
+# it costs nothing and there is someone watching.
+if (-not (Get-Module -ListAvailable -Name WebAdministration)) {
+    Stop-WithError 'The WebAdministration module is not available; deploys would fail at the IIS swap.' `
+        'Install the IIS management tools (Web-Scripting-Tools) on this machine, then re-run.'
+}
+
 # Refuse to schedule an install that cannot run. The deploy script performs the
 # same check at startup and exits 2, but a task that fails on every tick for
 # days before anyone reads the log is worth preventing here instead.

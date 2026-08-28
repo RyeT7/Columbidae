@@ -156,8 +156,6 @@ try {
         exit 0
     }
 
-    Import-Module WebAdministration -ErrorAction Stop
-
     $release = Get-LatestRelease -Owner $owner -Repo $repo -Token $token -TimeoutSeconds $httpTimeout
     $tag = $release.tag_name
     if (-not $tag) { throw "GitHub returned a release with no tag_name for $owner/$repo." }
@@ -175,6 +173,17 @@ try {
     }
 
     Write-Log "New release '$tag' available (currently deployed: '$(if ($deployedTag) { $deployedTag } else { 'none' })')."
+
+    # Deliberately loaded here, not at the top: WebAdministration is a heavy
+    # module, and the overwhelming majority of ticks exit above this line with
+    # nothing to do. Loading it per tick would spend the IIS provider's memory
+    # and startup cost hundreds of times a day to do nothing with it -- on a
+    # host this memory-sensitive that is the one recurring cost worth avoiding.
+    # Loading it before the download also means a broken IIS install fails
+    # before pulling an artifact rather than after.
+    # install-task.ps1 checks the module exists at install time, so a missing
+    # one is caught there rather than only when a release finally lands.
+    Import-Module WebAdministration -ErrorAction Stop
 
     $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
     if (-not $asset) {
