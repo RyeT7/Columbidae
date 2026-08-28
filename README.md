@@ -103,9 +103,27 @@ rolls back.
 
 ### 2. On the deploy VM
 
-Copy **the whole folder** — the script needs `lib\` and `config.yaml` beside
-it. It verifies the full lib set at startup and exits `2` before touching IIS
-if anything is missing, but don't rely on that; copy it as a unit.
+Download the latest `columbidae-<version>.zip` from
+[Releases](../../releases) and extract it — or clone this repo if you'd rather
+track `main`. Either way take **the whole folder**: the script needs `lib\` and
+`config.yaml` beside it. It verifies the full lib set at startup and exits `2`
+before touching IIS if anything is missing, but don't rely on that; copy it as
+a unit.
+
+Check the download against the published `.sha256` first — this code runs as
+SYSTEM:
+
+```powershell
+Get-FileHash .\columbidae-<version>.zip -Algorithm SHA256
+```
+
+The release ships `config.example.yaml` rather than `config.yaml`, so
+extracting an upgrade over an existing install can't destroy a live config.
+Copy it once:
+
+```powershell
+Copy-Item config.example.yaml config.yaml
+```
 
 Then edit `config.yaml`:
 
@@ -362,6 +380,38 @@ The runner picks it up by name — no registration list to update. It hands each
 case its own workspace and records a case that throws as a failure rather than
 letting it take the rest of the run down with it. A file whose function is
 missing or misnamed fails the run instead of being skipped silently.
+
+## Upgrading an existing install
+
+Disable the scheduled task first — the deploy lock stops two *runs* overlapping,
+but nothing stops files being replaced underneath a run that's already going.
+
+```powershell
+Disable-ScheduledTask -TaskName 'Columbidae Deploy Poll'
+# extract the new release over the existing folder
+Enable-ScheduledTask  -TaskName 'Columbidae Deploy Poll'
+```
+
+`config.yaml` survives, since releases ship `config.example.yaml`. Diff the two
+after upgrading to pick up any new settings. Re-run `install-task.ps1` only if
+`poll_interval_minutes` changed or the task itself needs rebuilding.
+
+## Cutting a release
+
+Releases are built by `.github/workflows/release.yml` on any `v*` tag:
+
+```powershell
+git tag -a v1.0.0 -m "v1.0.0"
+git push origin v1.0.0
+```
+
+That runs the full test suite first (it reuses `tests.yml`, so a release can't
+be cut from a tree the tests reject), stages only what a deploy target needs —
+no `tests\`, no `.github\` — verifies the payload is complete, then publishes a
+zip and a `.sha256`.
+
+To inspect the artifact without publishing anything, run the workflow manually
+from the Actions tab; it uploads the zip to the run summary and stops there.
 
 ## Requirements
 

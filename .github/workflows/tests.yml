@@ -10,6 +10,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Called by release.yml so a release can never be cut from a tree these
+  # tests would reject.
+  workflow_call:
 
 jobs:
   test:

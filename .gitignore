@@ -1,2 +1,5 @@
 *.md
 !README.md
+# Referenced by .github/workflows/release.yml -- must be committed or a tag
+# push fails at the publish step.
+!.github/release-notes.md

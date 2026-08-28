@@ -1,0 +1,141 @@
+# Publishes an installable zip of the deploy pipeline itself.
+#
+# Note the recursion: this repo is the tool that consumes GitHub Releases, and
+# this workflow makes releases *of that tool*. Nothing here is related to the
+# .NET app's build -- that lives in the app's own repo, from the template in
+# examples/deploy-release.yml.
+#
+# Cut a release by pushing a tag:
+#   git tag -a v1.0.0 -m "v1.0.0" && git push origin v1.0.0
+#
+# Run it manually (workflow_dispatch) to build and inspect the zip as a build
+# artifact without publishing anything -- useful for checking the payload
+# before committing to a version number.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # Reuses tests.yml rather than duplicating it, so a release can never be cut
+  # from a tree the test suite would reject.
+  test:
+    uses: ./.github/workflows/tests.yml
+
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="0.0.0-dev+${GITHUB_SHA::7}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "name=columbidae-${version}" >> "$GITHUB_OUTPUT"
+
+      # Only what a deploy target needs. tests\ and .github\ are development
+      # concerns and are deliberately left out; the VM never runs them.
+      - name: Stage the payload
+        env:
+          STAGING: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$STAGING/examples"
+          cp deploy-poll-lite.ps1 install-task.ps1 README.md LICENSE "$STAGING/"
+          cp -r lib "$STAGING/lib"
+          cp examples/deploy-release.yml "$STAGING/examples/"
+
+          # Shipped under a different name on purpose. An upgrade is "extract
+          # over the top", and config.yaml on a deploy target holds the
+          # github_token and webhook_url -- overwriting it would destroy
+          # credentials and silently repoint a live deploy at the placeholder
+          # org/repo. Renaming it here makes that impossible.
+          cp config.yaml "$STAGING/config.example.yaml"
+
+          echo "${{ steps.version.outputs.version }}" > "$STAGING/VERSION"
+
+      # The same failure this pipeline was designed to prevent on the deploy VM
+      # -- a half-copied install -- would be much worse baked into a release
+      # artifact, so the payload is verified before it is ever published.
+      - name: Verify the payload is complete
+        env:
+          STAGING: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for f in \
+            deploy-poll-lite.ps1 \
+            install-task.ps1 \
+            config.example.yaml \
+            VERSION \
+            README.md \
+            LICENSE \
+            examples/deploy-release.yml \
+            lib/Logging.ps1 lib/Config.ps1 lib/Lock.ps1 \
+            lib/GitHub.ps1 lib/Iis.ps1 lib/Releases.ps1 lib/Notify.ps1
+          do
+            if [ ! -f "$STAGING/$f" ]; then
+              echo "MISSING  $f"
+              missing=1
+            fi
+          done
+          if [ ! -f "$STAGING/config.yaml" ]; then
+            echo "ok       config.yaml correctly absent (ships as config.example.yaml)"
+          else
+            echo "MISSING  config.yaml must NOT ship -- it would clobber a live config"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          echo "Payload complete."
+          find "$STAGING" -type f | sort
+
+      - name: Zip it
+        id: zip
+        env:
+          STAGING: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          zip -r "${STAGING}.zip" "$STAGING"
+          sha256sum "${STAGING}.zip" > "${STAGING}.zip.sha256"
+          cat "${STAGING}.zip.sha256"
+
+      # Manual runs stop here: the zip is downloadable from the run's summary
+      # page, and nothing is published.
+      - name: Upload for inspection (manual runs only)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.name }}
+          path: ${{ steps.version.outputs.name }}.zip
+
+      # gh is preinstalled on the runner, so publishing needs no third-party
+      # action -- the same "no dependency unless it earns its place" rule the
+      # rest of this project follows.
+      # Install/upgrade instructions live in .github/release-notes.md so they
+      # can be edited as prose rather than as shell inside YAML.
+      # --generate-notes appends GitHub's own "What's Changed" list underneath.
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGING: ${{ steps.version.outputs.name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            --notes-file .github/release-notes.md \
+            "${STAGING}.zip" "${STAGING}.zip.sha256"
